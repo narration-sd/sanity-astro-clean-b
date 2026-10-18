@@ -1,0 +1,102 @@
+---
+import '@sanity/visual-editing-standalone/styles.css';
+
+export interface Props {
+  enabled?: boolean;
+  zIndex?: number;
+}
+
+// optional to set, if special timing situation occurs
+// a negative value in .env will disable typing loss prevention
+const assureTypingInterval: number = Number(
+  import.meta.env.PUBLIC_SANITY_ASSURE_TYPING_INTERVAL || 1200
+);
+
+const { enabled = true, zIndex } = Astro.props;
+---
+
+{enabled && (
+<script define:vars={{ assureTypingInterval, zIndex }}>
+  (function () {
+    const FLAG = 'sanity_sync_needed';
+
+    // Expose config and acknowledgement hook to the bundled script
+    window.__sanityVEConfig = {
+      enabled: true,
+      zIndex,
+      acknowledgeRefresh: () => {
+        sessionStorage.removeItem(FLAG);
+        if (window.__sanityFallbackTimer) {
+          clearTimeout(window.__sanityFallbackTimer);
+          window.__sanityFallbackTimer = null;
+        }
+      },
+    };
+
+    if (window.self === window.top) return;
+    if (assureTypingInterval <= 0) return;
+
+    // 1. OBSERVE: Monitor ONLY actual mutation events ('presentation/snapshot-event')
+    // Ignoring 'presentation/preview-snapshots' prevents post-refresh and on-load
+    // snapshot dumps from falsely re-arming FLAG after acknowledgeRefresh().
+    window.addEventListener('message', (e) => {
+      if (e.data?.type === 'presentation/snapshot-event') {
+        sessionStorage.setItem(FLAG, 'true');
+
+        // Fallback if the page is already loaded and Comlink drops the accompanying refresh
+        // ensure a fallback reload still fires after assureTypingInterval
+        if (
+          document.readyState === 'complete' &&
+          !window.__sanityFallbackTimer
+        ) {
+          window.__sanityFallbackTimer = setTimeout(() => {
+            sessionStorage.removeItem(FLAG);
+            window.location.reload();
+          }, assureTypingInterval);
+        }
+      }
+    });
+
+    // 2. RECONCILE: Check for missed updates on page arrival
+    window.addEventListener('load', () => {
+      const needsSync = sessionStorage.getItem(FLAG) === 'true';
+
+      if (needsSync) {
+        sessionStorage.removeItem(FLAG);
+
+        setTimeout(() => {
+          window.location.reload();
+        }, assureTypingInterval);
+      }
+    });
+  })();
+</script>
+
+<script>
+  import { enableVisualEditing } from '@sanity/visual-editing-standalone';
+
+  const config = (window as any).__sanityVEConfig;
+
+  if (config?.enabled) {
+    const cleanup = enableVisualEditing({
+      zIndex: config.zIndex,
+      refresh: (payload) => {
+        if (payload.source === 'mutation' || payload.source === 'manual') {
+          // Clear FLAG immediately (synchronously) when VE-Standalone accepts
+          // the refresh, BEFORE any trailing preview-snapshots message arrives
+          config.acknowledgeRefresh?.();
+
+          setTimeout(() => {
+            cleanup();
+            window.location.reload();
+          }, 0);
+          return Promise.resolve();
+        }
+        return false;
+      },
+    });
+
+    window.addEventListener('pagehide', () => cleanup(), { once: true });
+  }
+</script>
+  )}
