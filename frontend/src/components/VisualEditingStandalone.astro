@@ -33,10 +33,33 @@ const { enabled = true, zIndex } = Astro.props;
       },
     };
 
-    if (window.self === window.top) return;
-    if (assureTypingInterval <= 0) return;
+    // 1. PERSPECTIVE SYNC: Check if Presentation passed a perspective query param on load/reload
+    const params = new URLSearchParams(window.location.search);
+    const urlPerspective = params.get('sanity-preview-perspective') || params.get('perspective');
 
-    // 1. OBSERVE: Monitor ONLY actual mutation events ('presentation/snapshot-event')
+    // Read current cookie value
+    const match = document.cookie.match(/(?:^|;\s*)sanity-preview-perspective=([^;]*)/);
+    const currentCookie = match ? decodeURIComponent(match[1]) : '';
+
+    // Determine target perspective: URL param wins, otherwise existing cookie, otherwise default to 'published'
+    const targetPerspective = urlPerspective || currentCookie || 'published';
+
+    if (targetPerspective !== currentCookie) {
+      document.cookie = `sanity-preview-perspective=${encodeURIComponent(targetPerspective)}; path=/; SameSite=Lax`;
+
+      // If the URL lacked the parameter but we had to force a default/cookie sync on a fresh boot,
+      // reload or let the middleware catch it on the next pass.
+      if (urlPerspective && urlPerspective !== currentCookie) {
+        window.location.search = '';
+        return;
+      }
+    }
+
+    if (window.self === window.top) return; // not in studio
+
+    if (assureTypingInterval <= 0) return; // feature turned off
+
+    // 2. OBSERVE: Monitor ONLY actual mutation events ('presentation/snapshot-event')
     // Ignoring 'presentation/preview-snapshots' prevents post-refresh and on-load
     // snapshot dumps from falsely re-arming FLAG after acknowledgeRefresh().
     window.addEventListener('message', (e) => {
@@ -57,7 +80,7 @@ const { enabled = true, zIndex } = Astro.props;
       }
     });
 
-    // 2. RECONCILE: Check for missed updates on page arrival
+    // 3. RECONCILE: Check for missed updates on page arrival
     window.addEventListener('load', () => {
       const needsSync = sessionStorage.getItem(FLAG) === 'true';
 

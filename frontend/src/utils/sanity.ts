@@ -2,22 +2,28 @@ import { sanityClient } from "sanity:client";
 import type { PortableTextBlock } from "@portabletext/types";
 import type { Slug } from "@sanity/types";
 import groq from "groq";
+import { getActivePerspective } from "../middleware.ts";
 
 const visualEditingEnabled = import.meta.env.PUBLIC_SANITY_VISUAL_EDITING_ENABLED === "true";
 const token = import.meta.env.SANITY_API_READ_TOKEN;
 
-// visualEditingEnabled=true: fetch draft content with stega encoding (local/staging with Presentation tool)
-// visualEditingEnabled=false: fetch published content from CDN (production)
-async function loadQuery<T>(query: string, params: Record<string, any> = {}): Promise<T> {
-  return sanityClient.fetch<T>(
-    query,
-    params,
-    {
-      perspective: visualEditingEnabled ? 'drafts' : 'published',
-      useCdn: !visualEditingEnabled,
-      ...(visualEditingEnabled && token ? { token, stega: true } : {}),
-    }
-  );
+async function loadQuery<T>(
+  query: string,
+  params: Record<string, any> = {},
+): Promise<T> {
+
+  // visualEditingEnabled=true: fetch draft content with stega encoding (local/staging with Presentation tool)
+  // visualEditingEnabled=false: fetch published content from CDN (production)
+  // Dynamically follow the Studio's active perspective (published, drafts, or release)
+  const perspective = visualEditingEnabled
+    ? getActivePerspective()
+    : "published";
+
+  return sanityClient.fetch<T>(query, params, {
+    perspective: perspective,
+    useCdn: !visualEditingEnabled,
+    ...(visualEditingEnabled && token ? { token, stega: true } : {}),
+  });
 }
 
 // Shared image projection — dereferences asset to include dimensions and LQIP
