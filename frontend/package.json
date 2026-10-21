@@ -25,20 +25,24 @@
     "astro": "^7.3.8",
     "astro-portabletext": "^1.0.1",
     "autoprefixer": "^10.4.27",
-    "groq": "^6.19.0",
+    "groq": "^6.20.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-is": "^19.2.5",
-    "sanity": "^6.19.0",
+    "sanity": "^6.20.0",
     "styled-components": "^6.4.0",
     "tailwindcss": "^4.2.2"
   },
   "devDependencies": {
     "@portabletext/types": "^4.0.2",
-    "@sanity/types": "^6.19.0",
+    "@sanity/types": "^6.20.0",
     "@tailwindcss/typography": "^0.5.19",
+    "@types/node": "^26.6.5",
     "prettier": "^3.8.2",
     "prettier-plugin-astro": "^1.1.1",
     "typescript": "^6.0.0"
+  },
+  "engines": {
+    "node": "24.x"
   }
 }

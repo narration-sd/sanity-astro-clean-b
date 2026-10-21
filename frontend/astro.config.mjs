@@ -26,7 +26,11 @@ export default defineConfig({
   // Set to 'server' for Visual Editing and on-demand rendering
   // Requires an adapter for deployment (Vercel, Netlify, Cloudflare, Node, etc.)
   output: "server",
-  adapter: vercel(),
+  // IMPORTANT: When switching adapters (e.g., to @astrojs/netlify), keep
+  // edgeMiddleware: false (the default). Enabling Edge Middleware splits
+  // middleware.ts into a separate Deno/Edge isolate, breaking the Node.js
+  // AsyncLocalStorage perspective handoff to sanity.ts.
+  adapter: vercel({ edgeMiddleware: false }),
   integrations: [
     sanity({
       projectId,

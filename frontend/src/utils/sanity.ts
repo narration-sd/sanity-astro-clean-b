@@ -1,29 +1,39 @@
 import { sanityClient } from "sanity:client";
 import type { PortableTextBlock } from "@portabletext/types";
 import type { Slug } from "@sanity/types";
+import type { QueryParams } from "sanity";
 import groq from "groq";
-import { getActivePerspective } from "../middleware.ts";
+import { getActivePerspective } from "../middleware";
 
-const visualEditingEnabled = import.meta.env.PUBLIC_SANITY_VISUAL_EDITING_ENABLED === "true";
+const visualEditingEnabled =
+  import.meta.env.PUBLIC_SANITY_VISUAL_EDITING_ENABLED === "true";
 const token = import.meta.env.SANITY_API_READ_TOKEN;
 
-async function loadQuery<T>(
+export async function loadQuery<T>(
   query: string,
-  params: Record<string, any> = {},
+  params: QueryParams = {},
 ): Promise<T> {
+  if (visualEditingEnabled && !token) {
+    throw new Error(
+      "The `SANITY_API_READ_TOKEN` environment variable is required during Visual Editing.",
+    );
+  }
 
-  // visualEditingEnabled=true: fetch draft content with stega encoding (local/staging with Presentation tool)
-  // visualEditingEnabled=false: fetch published content from CDN (production)
-  // Dynamically follow the Studio's active perspective (published, drafts, or release)
+  // Evaluated per-request so SSR always reflects the current middleware state
   const perspective = visualEditingEnabled
     ? getActivePerspective()
     : "published";
 
-  return sanityClient.fetch<T>(query, params, {
-    perspective: perspective,
+  const { result } = await sanityClient.fetch<T>(query, params, {
+    filterResponse: false,
+    perspective,
     useCdn: !visualEditingEnabled,
-    ...(visualEditingEnabled && token ? { token, stega: true } : {}),
+    resultSourceMap: visualEditingEnabled ? "withKeyArraySelector" : false,
+    stega: visualEditingEnabled,
+    ...(visualEditingEnabled ? { token } : {}),
   });
+
+  return result;
 }
 
 // Shared image projection — dereferences asset to include dimensions and LQIP

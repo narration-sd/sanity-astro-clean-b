@@ -1,30 +1,51 @@
 import { defineMiddleware } from "astro:middleware";
 import type { ClientPerspective } from "@sanity/client";
+import { AsyncLocalStorage } from "node:async_hooks";
 
-// Module-scoped active perspective for the current SSR request
-let currentPerspective: ClientPerspective = "drafts";
+const perspectiveStorage = new AsyncLocalStorage<ClientPerspective>();
 
 export function getActivePerspective(): ClientPerspective {
-  return currentPerspective;
+  return perspectiveStorage.getStore() ?? "published";
 }
 
-export const onRequest = defineMiddleware((context, next) => {
-  // 1. Check if the Presentation iframe URL passed ?sanity-preview-perspective=...
-  const urlParam = context.url.searchParams.get("sanity-preview-perspective");
-
-  // 2. Otherwise check the cookie set by VisualEditingStandalone
-  const cookieVal = context.cookies.get("sanity-preview-perspective")?.value;
-  const raw = urlParam || cookieVal;
-
-  if (raw === "published" || raw === "drafts" || raw === "previewDrafts") {
-    currentPerspective = raw;
-  } else if (raw) {
-    // Content Releases pass comma-separated release IDs
-    currentPerspective = raw.split(",");
-  } else {
-    // Fallback when no Studio signal has been established yet
-    currentPerspective = "drafts";
+export const onRequest = defineMiddleware(async (context, next) => {
+  // 1. Hard-lock static/prerendered builds and non-editing servers to 'published'
+  if (
+    context.isPrerendered ||
+    import.meta.env.PUBLIC_SANITY_VISUAL_EDITING_ENABLED !== "true"
+  ) {
+    return perspectiveStorage.run("published", () => next());
   }
 
-  return next();
+  // 2. Match the browser's exact window.location.host for the cookie name
+  const rawHost =
+    context.request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() ||
+    context.request.headers.get("host") ||
+    context.url.host;
+  const cookieName = `sanity-perspective-${rawHost.replace(/[:.]/g, "-")}`;
+
+  // 3. Read perspective from Studio iframe URL param or host-specific cookie
+  const urlParam =
+    context.url.searchParams.get("sanity-preview-perspective") ||
+    context.url.searchParams.get("perspective");
+  const cookieVal = context.cookies.get(cookieName)?.value;
+
+  const raw = urlParam || cookieVal;
+
+  let activePerspective: ClientPerspective = "published";
+  if (raw === "published" || raw === "drafts" || raw === "previewDrafts") {
+    activePerspective = raw;
+  } else if (raw) {
+    activePerspective = raw.split(",");
+  }
+
+  // 4. Execute request in isolated async context and prevent Edge caching of preview HTML
+  const response = await perspectiveStorage.run(activePerspective, () =>
+    next(),
+  );
+  response.headers.set(
+    "Cache-Control",
+    "private, no-cache, no-store, must-revalidate",
+  );
+  return response;
 });
